@@ -1,6 +1,9 @@
 # Dataset Generation
 ## MNIST
-Usage
+### Source
+The dataset can be downloaded from here: http://yann.lecun.com/exdb/mnist/
+
+### Usage
 ```
 python3 mnist_gen.py  --dataset_path <path/of/dataset> --n_samples <number/of/samples>
 ```
