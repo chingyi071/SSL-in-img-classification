@@ -43,6 +43,7 @@ def dump_training_data( features, y_train, csv_name="xxx", dataset="cifar10" ):
             for ff, yy in zip(features[n_label:n_samples], y_train[n_label:n_samples]):
                 spamwriter.writerow([yy]+ff.flatten().tolist())
 def dump_testing_data( features, y_test, csv_name="xxx", dataset="cifar10" ):
+    print("Generate "+dataset+'-test-all-'+csv_name+'.csv')
     with open(dataset+'-test-all-'+csv_name+'.csv', 'w', newline='') as csvfile:
         spamwriter = csv.writer(csvfile, delimiter=',',
                                 quotechar=',', quoting=csv.QUOTE_MINIMAL)
@@ -58,4 +59,11 @@ for n_clr_lvl in n_clr_lvls:
             train_features_list.append(np.concatenate([np.histogram(img[:,:,c], bins=np.arange(0,256+n_clr_step,n_clr_step))[0] for c in range(3)]))
         train_features = np.array(train_features_list)
         dump_training_data( train_features, y_train, "hist"+str(n_clr_lvl))
+
+    test_features_list = []
+    for img in x_test_raw:
+        train_features_list.append(np.concatenate([np.histogram(img[:,:,c], bins=np.arange(0,256+n_clr_step,n_clr_step))[0] for c in range(3)]))
+    test_features = np.array(test_features_list)
+    dump_testing_data( train_features, y_test, "hist"+str(n_clr_lvl))
+
 
