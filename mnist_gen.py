@@ -79,10 +79,11 @@ y_test_all = np.frombuffer(y_test_buf, dtype=np.uint8).reshape(num_images, 1)
 
 for n_sample in n_samples:
     x_train = x_train_all[:n_sample]
-    y_train = y_train_all[:n_sample]
+    y_train = y_train_all[:n_sample].reshape(-1)
     dump_training_data( x_train, y_train, "raw", dataset='mnist')
 x_test  = x_test_all
-y_test  = y_test_all
+y_test  = y_test_all.reshape(-1)
+print("y_test = ", y_test)
 dump_testing_data(  x_test,  y_test,  "raw", dataset='mnist')
 
 
