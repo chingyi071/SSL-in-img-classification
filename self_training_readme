@@ -1,0 +1,4 @@
+Ussage: 
+	python self_training_mnist.py
+
+Some of the codes are borrowed from https://github.com/zidik/Self-labeled-techniques-for-semi-supervised-learning.git
