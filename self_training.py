@@ -16,6 +16,7 @@ class StandardSelfTraining:
         self.name = name
         self.base_classifier = base_classifier
         self.max_iterations = max_iterations
+        self.min_threshold   = 300
 
     def __str__(self):
         return "Classifier: " + self.name + "\nParameters: " + str(self.base_classifier.get_params())
@@ -28,44 +29,94 @@ class StandardSelfTraining:
         X = np.copy(Xtrain)
         y = np.copy(ytrain) # copy in order not to change original data
         
-        all_labeled = False
+        all_are_labeled = False
         iteration = 0
         train_labeled_losses, train_unlabeled_losses, test_losses = [], [], []
         train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess = [], [], []
         # Iterate until the result is stable or max_iterations is reached
-        while not all_labeled and (iteration < self.max_iterations):
+        while not all_are_labeled and (iteration < self.max_iterations):
             self._fit_iteration(X, y)
-            all_labeled = (y != "unlabeled").all()
+            all_are_labeled = (y != "unlabeled").all()
             iteration += 1
             train_labeled_loss, train_labeled_error, train_labeled_accuracy = \
                                 self.score(dataset['train_labeled_x'], dataset['train_labeled_y'])
             train_unlabeled_loss, train_unlabeled_error, train_unlabeled_accuracy = \
                                 self.score(dataset['train_unlabeled_x'], dataset['train_unlabeled_y'])
             test_loss, test_error, test_accuracy = self.score(dataset['test_x'], dataset['test_y'])
-            train_labeled_losses.append(train_labeled_loss)
-            train_unlabeled_losses.append(train_unlabeled_loss)
-            test_losses.append(test_loss)
-            train_labeled_accuraciess.append(train_labeled_accuracy) 
+            
+            # Record the loss
+            train_labeled_losses.       append(train_labeled_loss)
+            train_unlabeled_losses.     append(train_unlabeled_loss)
+            test_losses.                append(test_loss)
+            train_labeled_accuraciess.  append(train_labeled_accuracy) 
             train_unlabeled_accuraciess.append(train_unlabeled_accuracy) 
-            test_accuraciess.append(test_accuracy)
+            test_accuraciess.           append(test_accuracy)
+
             print('iteration = '+str(iteration)+', train_unlabeled_accuracy = '+str(train_unlabeled_accuracy)
                   +', test_accuracy = '+str(test_accuracy))
         return train_labeled_losses, train_unlabeled_losses, test_losses, \
                train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess
         
-    def _fit_iteration(self, X, y):
+    def gmm_analysis(self, X, y, labeled):
+        from sklearn.mixture import GaussianMixture
         threshold = 0.7
-        
-        clf = self.base_classifier
-        # Fit a classifier on already labeled data
-        labeled = (y != 'unlabeled')
-        clf.fit(X[labeled], y[labeled])
 
-        probabilities = clf.predict_proba(X)
-        threshold = min(threshold, probabilities[~labeled, :].max()) # Get at least the best one
-        over_thresh = probabilities.max(axis=1)>=threshold
+        # New-labeled data selection
+        # Calculate the clustering score
+        gmm = GaussianMixture(n_components=10, covariance_type='spherical')
+        gmm.fit(X[labeled], y[labeled])
+        clstr_score = gmm.score_samples(X)
+        print("prob varies from %f to %f" % (min(clstr_score), max(clstr_score)))
         
-        y[~labeled & over_thresh] = clf.predict(X[~labeled & over_thresh])
+        # Filter the result over threshold
+        threshold = min( self.min_threshold, clstr_score[~labeled].max())
+        print("Number of unlabled data = ", clstr_score[~labeled].shape, "/", clstr_score.shape)
+        predicted_index = gmm.predict(X)
+        return predicted_index, clstr_score
+
+    def label_assign( self, X, y, gmm_predicted ):
+        lut = [None]*10 # Indexed by cluster number get real label
+        print(    "                True label   ", "   ".join(["%d"%x for x in range(10)]))
+        for i in range(10): # i = label
+            data_labeled_with_label_i = (y == str(i))
+            predicted = gmm_predicted[data_labeled_with_label_i]
+            count = [len([x for x in predicted if x==clstr_index]) for clstr_index in range(10)]
+            print("Distribution with %d-label = " % i, ", ".join(["%2d" % x for x in count]), ", the max is ", count.index(max(count)))
+            label_with_max_count = count.index(max(count))
+            lut[label_with_max_count] = str(i)
+        print("lut = ", ", ".join(["%d->'%s'" % (cluster_index, label) for cluster_index, label in enumerate(lut)]))
+        return lut
+
+    def _fit_iteration(self, X, y):
+        from sklearn.mixture import GaussianMixture
+        threshold = 0.7
+        labeled = (y != 'unlabeled')
+
+        gmm_predicted, clstr_score = self.gmm_analysis(X,y,labeled)
+
+        clf = self.base_classifier
+        labeled = (y != 'unlabeled')
+        clf.fit( X[labeled], y[labeled] )
+
+        lut = self.label_assign(X,y,gmm_predicted)
+
+        import statistics
+        for i in range(10):
+            if lut[i] is not None:
+                with_gmm_label_i = gmm_predicted==i
+                # print("Number in cluster %d" % i, y[with_gmm_label_i].shape, "ranged from %d to %d" % (min(clstr_score[with_gmm_label_i]), max(clstr_score[with_gmm_label_i])))
+                stdev = statistics.stdev(clstr_score[with_gmm_label_i])
+                mean = statistics.mean(clstr_score[with_gmm_label_i])
+                over_per_cluster_thresh = clstr_score >= (mean+2*stdev)
+                if y[~labeled & over_per_cluster_thresh & with_gmm_label_i].shape[0] > 0:
+                    y[~labeled & over_per_cluster_thresh & with_gmm_label_i] = lut[i]
+                    print("Label", y[~labeled & over_per_cluster_thresh & with_gmm_label_i].shape, "in cluster %d to" % i, "'%s'" % lut[i]\
+                        , "with real = ", y[~labeled & over_per_cluster_thresh & with_gmm_label_i])
+
+        labeled = (y != 'unlabeled')
+        print("labeled size = ", len([x for x in labeled if x == True]))
+
+#        y[~labeled & over_thresh] = gmm.predict(X[~labeled & over_thresh])
 
     def predict(self, X):
         yhat = self.base_classifier.predict(X)
@@ -136,7 +187,7 @@ def data_prepare(dataset_path, n_samples):
 # ================================================================================== #
 if __name__ == '__main__':
 
-    dataset_path = '../data/mnist'
+    dataset_path = '/home/chingyi/Datasets/mnist'
     n_samples = 6000
     max_iterations = 10
     result_file = 'self_training_mnist_normalized'+str(n_samples)
@@ -161,16 +212,17 @@ if __name__ == '__main__':
                    # AdaBoostClassifier()
                    ]
     
-    Train_labeled_loss, Train_unlabeled_loss, Test_loss = {}, {}, {}
+    Train_labeled_loss,     Train_unlabeled_loss,     Test_loss     = {}, {}, {}
     Train_labeled_accuracy, Train_unlabeled_accuracy, Test_accuracy = {}, {}, {}
     if os.path.isfile(result_file+'.pickle'):
-        with open(result_file+'.pickle', 'rb') as file: results = pickle.load(file)
-        Train_labeled_loss = results['Train_labeled_loss']
-        Train_unlabeled_loss = results['Train_unlabeled_loss']
-        Test_loss = results['Test_loss']
-        Train_labeled_accuracy = results['Train_labeled_accuracy']
-        Train_unlabeled_accuracy = results['Train_unlabeled_accuracy']
-        Test_accuracy = results['Test_accuracy']
+        with open(result_file+'.pickle', 'rb') as file:
+            results = pickle.load(file)
+            Train_labeled_loss       = results['Train_labeled_loss']
+            Train_unlabeled_loss     = results['Train_unlabeled_loss']
+            Test_loss                = results['Test_loss']
+            Train_labeled_accuracy   = results['Train_labeled_accuracy']
+            Train_unlabeled_accuracy = results['Train_unlabeled_accuracy']
+            Test_accuracy            = results['Test_accuracy']
 
     # iterate over classifiers
     for name, clf in zip(names, classifiers):
@@ -181,7 +233,7 @@ if __name__ == '__main__':
             Train_labeled_accuracy[name], Train_unlabeled_accuracy[name], Test_accuracy[name] = [], [], []
 
         for size in sizes:
-            num_label_data = n_samples * size / 100
+            num_label_data = int( n_samples * size / 100 )
             dataset['train_labeled_x'] = dataset_all['train_x'][:num_label_data,]
             dataset['train_labeled_y'] = dataset_all['train_y'][:num_label_data]
             dataset['train_unlabeled_x'] = dataset_all['train_x'][num_label_data:n_samples,]
