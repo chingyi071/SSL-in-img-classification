@@ -10,13 +10,31 @@ from sklearn import neighbors, svm, linear_model, tree, ensemble, naive_bayes, n
 from sklearn import model_selection
 
 
+def get_label_mask( y_train, label_ratio ):#dataset_all,result_subdir, X_train, y_train, X_test, y_test, num_classes):
+
+    # Assign labels to a subset of inputs.
+    num_labels  = int(len(y_train) * (label_ratio/100))
+    num_classes = 10
+    max_count = num_labels // num_classes
+    print("Keeping %d labels per class." % max_count)
+    mask_train = np.zeros(len(y_train), dtype=np.bool)
+    count = [0] * num_classes
+    for i in range(len(y_train)):
+        label = y_train[i]
+        if count[label] < max_count:
+            mask_train[i] = True
+            count[label] += 1
+
+    return mask_train
 
 class StandardSelfTraining:
     def __init__(self, name, base_classifier, base_cluster, max_iterations=10):
         self.name = name
         self.base_classifier = base_classifier
         self.base_cluster    = base_cluster
-        self.max_iterations = max_iterations
+        self.max_iterations  = max_iterations
+        self.label_indices   = []
+        self.label_values    = []
         self.min_threshold   = 300
 
     def __str__(self):
@@ -35,15 +53,27 @@ class StandardSelfTraining:
         train_labeled_losses, train_unlabeled_losses, test_losses = [], [], []
         train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess = [], [], []
         # Iterate until the result is stable or max_iterations is reached
+        self.base_classifier.fit( dataset['train_labeled_x'], dataset['train_labeled_y'] )
+        train_labeled_loss, train_labeled_error, train_labeled_accuracy = \
+                            self.score(dataset['train_labeled_x'], dataset['train_labeled_y'])
+        train_unlabeled_loss, train_unlabeled_error, train_unlabeled_accuracy = \
+                            self.score(dataset['train_unlabeled_x'], dataset['train_unlabeled_y'])
+        test_loss, test_error, test_accuracy = self.score(dataset['test_x'], dataset['test_y'])
+
+        print('Before iteration #1, train_unlabeled_accuracy = '+str(train_unlabeled_accuracy)
+              +', test_accuracy = '+str(test_accuracy))
+
         while not all_are_labeled and (iteration < self.max_iterations):
+            print('Before iteration = #%d, train_unlabeled_accuracy = %.3f, test_accuracy = %.3f' % (iteration, train_unlabeled_accuracy, test_accuracy))
             self._fit_iteration(X, y)
             all_are_labeled = (y != "unlabeled").all()
-            iteration += 1
+
             train_labeled_loss, train_labeled_error, train_labeled_accuracy = \
                                 self.score(dataset['train_labeled_x'], dataset['train_labeled_y'])
             train_unlabeled_loss, train_unlabeled_error, train_unlabeled_accuracy = \
                                 self.score(dataset['train_unlabeled_x'], dataset['train_unlabeled_y'])
             test_loss, test_error, test_accuracy = self.score(dataset['test_x'], dataset['test_y'])
+            print('After  iteration = #%d, train_unlabeled_accuracy = %.3f, test_accuracy = %.3f' % (iteration, train_unlabeled_accuracy, test_accuracy))
             
             # Record the loss
             train_labeled_losses.       append(train_labeled_loss)
@@ -52,31 +82,33 @@ class StandardSelfTraining:
             train_labeled_accuraciess.  append(train_labeled_accuracy) 
             train_unlabeled_accuraciess.append(train_unlabeled_accuracy) 
             test_accuraciess.           append(test_accuracy)
+            iteration += 1
 
-            print('iteration = '+str(iteration)+', train_unlabeled_accuracy = '+str(train_unlabeled_accuracy)
-                  +', test_accuracy = '+str(test_accuracy))
         return train_labeled_losses, train_unlabeled_losses, test_losses, \
                train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess
         
 
-    def _fit_iteration(self, X, y):
-        from sklearn.mixture import GaussianMixture
-        threshold = 0.7
-        labeled = (y != 'unlabeled')
+    def _fit_iteration(self, X, y, gt=None):
 
-
+        # Fit labeled data to base classifier
         clf = self.base_classifier
         labeled = (y != 'unlabeled')
         clf.fit( X[labeled], y[labeled] )
 
+        # Select to-be-labeled candidate
         label_index, label_value = self.base_cluster.selected_labeled(X,y,labeled)
+        self.label_indices.append( label_index )
+        self.label_values. append( label_value )
 
+        # Assert every candidate in to-be-labeled is with y = 'unlabeled'
         for i, non_label in enumerate(label_index):
             assert(non_label == False or y[i] == 'unlabeled')
 
+        # Label new data
         y[label_index] = label_value
-        labeled = (y != 'unlabeled')
-        print("labeled size = ", len([x for x in labeled if x == True]))
+
+        # Dump number of labeled
+        print("labeled size = ", len([x for x in (y != 'unlabeled') if x == True]))
 
     def predict(self, X):
         yhat = self.base_classifier.predict(X)
@@ -95,10 +127,13 @@ class StandardSelfTraining:
         # print(np.hstack((y.reshape((-1,1)), yhat.reshape((-1,1)))))
         return loss, error, accuracy
 
+    def get_label_info(self):
+        return self.label_indices, self.label_values
+
 class GMM:
     def gmm_analysis( self, X, y, labeled):
         from sklearn.mixture import GaussianMixture
-        threshold = 0.7
+        threshold = 0.8
 
         # New-labeled data selection
         # Calculate the clustering score
@@ -114,7 +149,7 @@ class GMM:
 
     def label_assign( self, X, y, gmm_predicted ):
         lut = [None]*10 # Indexed by cluster number get real label
-        print(    "                True label   ", "   ".join(["%d"%x for x in range(10)]))
+        print(    "           Cluster index   ", "   ".join(["%d"%x for x in range(10)]))
         for i in range(10): # i = label
             data_labeled_with_label_i = (y == str(i))
             predicted = gmm_predicted[data_labeled_with_label_i]
@@ -129,6 +164,7 @@ class GMM:
         gmm_predicted, clstr_score = self.gmm_analysis(X,y,labeled)
         lut = self.label_assign(X,y,gmm_predicted)
 
+        to_be_labeled = -np.ones_like(y, dtype=np.int8)
         label_index = np.zeros_like(y, dtype=np.bool_)
         label_value = []
         import statistics
@@ -138,14 +174,16 @@ class GMM:
                 # print("Number in cluster %d" % i, y[with_gmm_label_i].shape, "ranged from %d to %d" % (min(clstr_score[with_gmm_label_i]), max(clstr_score[with_gmm_label_i])))
                 stdev = statistics.stdev(clstr_score[with_gmm_label_i])
                 mean  = statistics.mean(clstr_score[with_gmm_label_i])
-                over_per_cluster_thresh = clstr_score >= (mean+2*stdev)
+                over_per_cluster_thresh = clstr_score >= (mean+1.5*stdev)
 
                 num_of_new_label = sum(~labeled & over_per_cluster_thresh & with_gmm_label_i)
+                print("num_of_new_label(%d) = %d / %d" % (i, num_of_new_label, np.sum(~labeled & with_gmm_label_i)))
                 if  num_of_new_label > 0:
+                    to_be_labeled[~labeled & over_per_cluster_thresh & with_gmm_label_i] = lut[i]
                     label_index[~labeled & over_per_cluster_thresh & with_gmm_label_i] = True
                     label_value.extend([lut[i]]*num_of_new_label)
-                    print("Label", y[~labeled & over_per_cluster_thresh & with_gmm_label_i].shape, "in cluster %d to" % i, "'%s'" % lut[i]\
-                        , "with real = ", y[~labeled & over_per_cluster_thresh & with_gmm_label_i])
+        label_index = to_be_labeled > 0
+        return label_index, to_be_labeled[label_index]
         return label_index, np.array(label_value)
 
 class DNN_cluster:
@@ -230,7 +268,7 @@ if __name__ == '__main__':
     parser.add_argument("--n_test",  type=int,   default=10000)
     parser.add_argument("--model_cls", type=str, nargs='+', required=True)
     parser.add_argument("--model_slt", type=str, nargs='+', required=True)
-    parser.add_argument("--ratios",    type=int, nargs='+', default=[10])
+    parser.add_argument("--ratios",    type=float, nargs='+', default=[10])
     parser.add_argument("--max_iterations", type=int, default=10)
     args = parser.parse_args()
 
@@ -242,7 +280,7 @@ if __name__ == '__main__':
     filename_res = 'SSL_result_mnist_ntrain%d_label%d_cls%s_slt%s.txt'
 
     dataset_all = data_prepare(dataset_path, n_train=n_train_samples, n_test=args.n_test)
-    
+
     print(dataset_all['train_x'].shape)
     dataset = {}
     dataset['test_x'] = dataset_all['test_x']
@@ -287,11 +325,12 @@ if __name__ == '__main__':
             # Train_labeled_accuracy[name], Train_unlabeled_accuracy[name], Test_accuracy[name] = [], [], []
 
             for label_ratio in ratios:
+                label_mask = get_label_mask( y_train=dataset_all['train_y'][:n_train_samples], label_ratio=label_ratio )
                 num_label_data = int( n_train_samples * label_ratio / 100 )
-                dataset['train_labeled_x']   = dataset_all['train_x'][:num_label_data,]
-                dataset['train_labeled_y']   = dataset_all['train_y'][:num_label_data]
-                dataset['train_unlabeled_x'] = dataset_all['train_x'][num_label_data:n_train_samples,]
-                dataset['train_unlabeled_y'] = dataset_all['train_y'][num_label_data:n_train_samples]
+                dataset['train_labeled_x']   = dataset_all['train_x'][:n_train_samples][label_mask]
+                dataset['train_labeled_y']   = dataset_all['train_y'][:n_train_samples][label_mask]
+                dataset['train_unlabeled_x'] = dataset_all['train_x'][:n_train_samples][~label_mask]
+                dataset['train_unlabeled_y'] = dataset_all['train_y'][:n_train_samples][~label_mask]
 
                 method = StandardSelfTraining(clf_name, base_classifier=clf, base_cluster=slt, max_iterations=max_iterations)
                 print("Method = ", method.__str__())
@@ -309,6 +348,14 @@ if __name__ == '__main__':
                 with open(filename_res % (n_train_samples, label_ratio, clf_name, slt_name), "w") as f:
                     for item in single_result:
                         f.write(item+":"+str(single_result[item])+'\n')
+
+                label_index, label_value = method.get_label_info()
+                groundtruth = np.hstack((dataset['train_labeled_y'], dataset['train_unlabeled_y']))
+                
+                # Dump new label accuracy
+                print("New label accuracy")
+                for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
+                    print("Iteration %2d: New label acc = " % i, sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
             #     Train_labeled_loss[name].append(train_labeled_losses)
             #     Train_unlabeled_loss[name].append(train_unlabeled_losses)
             #     Test_loss[name].append(test_losses)
