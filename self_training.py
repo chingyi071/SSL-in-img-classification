@@ -202,8 +202,9 @@ class GMM:
         return label_index, to_be_labeled[label_index]
 
 class DNN_cluster:
-    def __init__( self, th_label_assign ):
+    def __init__( self, th_label_assign, mhigh=False ):
         self.th_label_assign = th_label_assign
+        self.th_mhigh = mhigh
 
     def selected_labeled(self, X, y, labeled):
         import statistics
@@ -223,7 +224,9 @@ class DNN_cluster:
         prob_max = np.max(probabilities, axis=1)
         # stdev = statistics.stdev(prob_max[~labeled])
         # mean  = statistics.mean(prob_max[~labeled])
-        mhigh = statistics.median_high(prob_max[~labeled])
+        if self.th_mhigh == True:
+            mhigh = statistics.median_high(prob_max[~labeled])
+        else: mhigh = 0
         threshold = max(self.th_label_assign, mhigh)
         print("threshold = ", threshold)
         over_thresh = prob_max >= threshold
@@ -304,6 +307,15 @@ def data_prepare(dataset_path, n_train=60000, n_test=10000):
     y_train_buf = y_train_file.read(num_images * 1)
     y_train_all = np.frombuffer(y_train_buf, dtype=np.uint8).reshape(num_images, )
     
+    # indice = np.zeros_like(y_train_all)
+    # assert( len(indice.shape) == 1 )
+    # arg = np.arange(6000)
+    # for i in range(10):
+    #     indice[arg[y_train_all==i][:10]] = True
+    # print("indice = ", indice, sum(indice))
+
+    # xxx
+    
     num_images = n_test
     x_test_file = gzip.open(dataset_path+'/t10k-images-idx3-ubyte.gz','r')
     x_test_file.read(16)
@@ -368,6 +380,10 @@ if __name__ == '__main__':
     name_selectors = []
     if 'GMM' in args.model_slt:
         name_selectors.append( ('GMM',  [GMM()] ))
+    if 'GMM-60-0'  in args.model_slt:
+        name_selectors.append( ('GMM6000',  [GMM(th_label_assign=0.6, th_norm_ranking=0.0)] ))
+    if 'GMM-60-5'  in args.model_slt:
+        name_selectors.append( ('GMM6005',  [GMM(th_label_assign=0.6, th_norm_ranking=0.5)] ))
     if 'GMM-60-10' in args.model_slt:
         name_selectors.append( ('GMM6010',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0)] ))
     if 'GMM-60-15' in args.model_slt:
@@ -387,13 +403,27 @@ if __name__ == '__main__':
     if 'GMM-40-20' in args.model_slt:
         name_selectors.append( ('GMM4020',  [GMM(th_label_assign=0.4, th_norm_ranking=2.0)] ))
     if 'DNN-70' in args.model_slt:
-        name_selectors.append( ('DNN70',  [DNN_cluster(th_label_assign=0.7)]))
+        name_selectors.append( ('DNN70',       [DNN_cluster(th_label_assign=0.70)            ]))
+        name_selectors.append( ('DNN70-mhigh', [DNN_cluster(th_label_assign=0.70, mhigh=True)]))
     if 'DNN-80' in args.model_slt:
-        name_selectors.append( ('DNN80',  [DNN_cluster(th_label_assign=0.8)]))
+        name_selectors.append( ('DNN80',       [DNN_cluster(th_label_assign=0.80)            ]))
+        name_selectors.append( ('DNN80-mhigh', [DNN_cluster(th_label_assign=0.80, mhigh=True)]))
     if 'DNN-90' in args.model_slt:
-        name_selectors.append( ('DNN90',  [DNN_cluster(th_label_assign=0.9)]))
+        name_selectors.append( ('DNN90',       [DNN_cluster(th_label_assign=0.90)            ]))
+        name_selectors.append( ('DNN90-mhigh', [DNN_cluster(th_label_assign=0.90, mhigh=True)]))
     if 'DNN-95' in args.model_slt:
-        name_selectors.append( ('DNN95',  [DNN_cluster(th_label_assign=0.9)]))
+        name_selectors.append( ('DNN95',       [DNN_cluster(th_label_assign=0.95)            ]))
+        name_selectors.append( ('DNN95-mhigh', [DNN_cluster(th_label_assign=0.95, mhigh=True)]))
+    if 'DNN-98' in args.model_slt:
+        name_selectors.append( ('DNN98',       [DNN_cluster(th_label_assign=0.98)            ]))
+        name_selectors.append( ('DNN98-mhigh', [DNN_cluster(th_label_assign=0.98, mhigh=True)]))
+    if 'GMM-6010-DNN90' in args.model_slt:
+        name_selectors.append( ('GMM-6010-DNN90-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.90, mhigh=True)]))
+    if 'GMM-6010-DNN95' in args.model_slt:
+        name_selectors.append( ('GMM-6010-DNN95-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.95, mhigh=True)]))
+    if 'GMM-6010-DNN98' in args.model_slt:
+        name_selectors.append( ('GMM-6010-DNN98-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.98, mhigh=True)]))
+
     if 'iDNN' in args.model_slt:
         name_selectors.append( ('iDNN', [None]))
 
@@ -450,8 +480,8 @@ if __name__ == '__main__':
 
                     for item in single_result:
                         f.write(item+'\n')
-                        for i in single_result[item]:
-                            f.write("Iteration %2d: %.3e" % (i, single_result[item][i]))
+                        for i, res in enumerate(single_result[item]):
+                            f.write("Iteration %2d: %.3e" % (i, res))
 
                     # Dump new label accuracy
                     print("New label accuracy")

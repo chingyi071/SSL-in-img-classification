@@ -1,0 +1,16 @@
+Train_labeled_loss
+Iteration  0: 9.998e-04Iteration  1: 3.509e-04Iteration  2: 2.083e-04Iteration  3: 2.358e-04Iteration  4: 1.567e-04Iteration  5: 2.556e-04Iteration  6: 1.575e-04Iteration  7: 2.315e-04Iteration  8: 1.051e-04Iteration  9: 2.593e-04Train_unlabeled_loss
+Iteration  0: 6.370e-01Iteration  1: 1.292e+00Iteration  2: 1.559e+00Iteration  3: 1.605e+00Iteration  4: 1.647e+00Iteration  5: 1.594e+00Iteration  6: 1.672e+00Iteration  7: 1.631e+00Iteration  8: 1.772e+00Iteration  9: 1.656e+00Test_loss
+Iteration  0: 6.600e-01Iteration  1: 1.114e+00Iteration  2: 1.258e+00Iteration  3: 1.320e+00Iteration  4: 1.323e+00Iteration  5: 1.269e+00Iteration  6: 1.316e+00Iteration  7: 1.315e+00Iteration  8: 1.356e+00Iteration  9: 1.335e+00Train_labeled_accuracy
+Iteration  0: 1.000e+00Iteration  1: 1.000e+00Iteration  2: 1.000e+00Iteration  3: 1.000e+00Iteration  4: 1.000e+00Iteration  5: 1.000e+00Iteration  6: 1.000e+00Iteration  7: 1.000e+00Iteration  8: 1.000e+00Iteration  9: 1.000e+00Train_unlabeled_accuracy
+Iteration  0: 8.691e-01Iteration  1: 8.696e-01Iteration  2: 8.685e-01Iteration  3: 8.689e-01Iteration  4: 8.689e-01Iteration  5: 8.691e-01Iteration  6: 8.691e-01Iteration  7: 8.691e-01Iteration  8: 8.691e-01Iteration  9: 8.693e-01Test_accuracy
+Iteration  0: 8.636e-01Iteration  1: 8.692e-01Iteration  2: 8.669e-01Iteration  3: 8.649e-01Iteration  4: 8.679e-01Iteration  5: 8.667e-01Iteration  6: 8.644e-01Iteration  7: 8.653e-01Iteration  8: 8.651e-01Iteration  9: 8.649e-01Iteration  0: New label acc 4517/5001
+Iteration  1: New label acc 138/303
+Iteration  2: New label acc 27/63
+Iteration  3: New label acc 8/16
+Iteration  4: New label acc 1/8
+Iteration  5: New label acc 1/4
+Iteration  6: New label acc 1/3
+Iteration  7: New label acc 0/0
+Iteration  8: New label acc 0/1
+Iteration  9: New label acc 0/1

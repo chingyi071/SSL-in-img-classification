@@ -1,0 +1,26 @@
+Train_labeled_loss
+Iteration  0: 1.047e-03Iteration  1: 1.113e-03Iteration  2: 7.186e-04Iteration  3: 8.957e-04Iteration  4: 5.837e-04Iteration  5: 6.644e-04Iteration  6: 4.650e-04Iteration  7: 3.716e-04Iteration  8: 3.955e-04Iteration  9: 3.695e-04Iteration 10: 3.226e-04Iteration 11: 3.936e-04Iteration 12: 3.940e-04Iteration 13: 3.573e-04Iteration 14: 4.113e-04Iteration 15: 3.773e-04Iteration 16: 3.740e-04Iteration 17: 3.211e-04Iteration 18: 3.243e-04Iteration 19: 3.515e-04Train_unlabeled_loss
+Iteration  0: 6.425e-01Iteration  1: 6.193e-01Iteration  2: 7.354e-01Iteration  3: 7.238e-01Iteration  4: 8.441e-01Iteration  5: 8.366e-01Iteration  6: 1.012e+00Iteration  7: 1.046e+00Iteration  8: 1.113e+00Iteration  9: 1.157e+00Iteration 10: 1.215e+00Iteration 11: 1.254e+00Iteration 12: 1.277e+00Iteration 13: 1.313e+00Iteration 14: 1.324e+00Iteration 15: 1.330e+00Iteration 16: 1.346e+00Iteration 17: 1.371e+00Iteration 18: 1.351e+00Iteration 19: 1.420e+00Test_loss
+Iteration  0: 6.743e-01Iteration  1: 6.476e-01Iteration  2: 7.406e-01Iteration  3: 7.384e-01Iteration  4: 8.271e-01Iteration  5: 8.020e-01Iteration  6: 9.089e-01Iteration  7: 9.256e-01Iteration  8: 9.385e-01Iteration  9: 9.689e-01Iteration 10: 9.757e-01Iteration 11: 1.037e+00Iteration 12: 1.038e+00Iteration 13: 1.064e+00Iteration 14: 1.068e+00Iteration 15: 1.072e+00Iteration 16: 1.082e+00Iteration 17: 1.086e+00Iteration 18: 1.051e+00Iteration 19: 1.119e+00Train_labeled_accuracy
+Iteration  0: 1.000e+00Iteration  1: 1.000e+00Iteration  2: 1.000e+00Iteration  3: 1.000e+00Iteration  4: 1.000e+00Iteration  5: 1.000e+00Iteration  6: 1.000e+00Iteration  7: 1.000e+00Iteration  8: 1.000e+00Iteration  9: 1.000e+00Iteration 10: 1.000e+00Iteration 11: 1.000e+00Iteration 12: 1.000e+00Iteration 13: 1.000e+00Iteration 14: 1.000e+00Iteration 15: 1.000e+00Iteration 16: 1.000e+00Iteration 17: 1.000e+00Iteration 18: 1.000e+00Iteration 19: 1.000e+00Train_unlabeled_accuracy
+Iteration  0: 8.652e-01Iteration  1: 8.704e-01Iteration  2: 8.709e-01Iteration  3: 8.720e-01Iteration  4: 8.819e-01Iteration  5: 8.826e-01Iteration  6: 8.869e-01Iteration  7: 8.889e-01Iteration  8: 8.887e-01Iteration  9: 8.893e-01Iteration 10: 8.889e-01Iteration 11: 8.902e-01Iteration 12: 8.865e-01Iteration 13: 8.869e-01Iteration 14: 8.870e-01Iteration 15: 8.887e-01Iteration 16: 8.878e-01Iteration 17: 8.867e-01Iteration 18: 8.881e-01Iteration 19: 8.869e-01Test_accuracy
+Iteration  0: 8.597e-01Iteration  1: 8.610e-01Iteration  2: 8.665e-01Iteration  3: 8.690e-01Iteration  4: 8.766e-01Iteration  5: 8.768e-01Iteration  6: 8.806e-01Iteration  7: 8.807e-01Iteration  8: 8.826e-01Iteration  9: 8.840e-01Iteration 10: 8.858e-01Iteration 11: 8.822e-01Iteration 12: 8.829e-01Iteration 13: 8.817e-01Iteration 14: 8.816e-01Iteration 15: 8.814e-01Iteration 16: 8.835e-01Iteration 17: 8.811e-01Iteration 18: 8.832e-01Iteration 19: 8.816e-01Iteration  0: New label acc 236/236
+Iteration  1: New label acc 2540/2582
+Iteration  2: New label acc 45/46
+Iteration  3: New label acc 1137/1268
+Iteration  4: New label acc 3/3
+Iteration  5: New label acc 499/633
+Iteration  6: New label acc 0/0
+Iteration  7: New label acc 185/302
+Iteration  8: New label acc 0/0
+Iteration  9: New label acc 59/109
+Iteration 10: New label acc 0/0
+Iteration 11: New label acc 29/65
+Iteration 12: New label acc 0/0
+Iteration 13: New label acc 12/30
+Iteration 14: New label acc 0/0
+Iteration 15: New label acc 6/18
+Iteration 16: New label acc 0/0
+Iteration 17: New label acc 10/21
+Iteration 18: New label acc 0/0
+Iteration 19: New label acc 4/11
