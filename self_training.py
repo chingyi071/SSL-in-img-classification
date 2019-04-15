@@ -42,7 +42,7 @@ class StandardSelfTraining:
 
     def fit(self, dataset):
         Xtrain = np.vstack((dataset['train_labeled_x'], dataset['train_unlabeled_x']))
-        ytrain = np.hstack((dataset['train_labeled_y'], ['unlabeled']*len(dataset['train_unlabeled_x'])))
+        ytrain = np.hstack((dataset['train_labeled_y'], [99]*len(dataset['train_unlabeled_x'])))
         Xtest = dataset['test_x']
         ytest = dataset['test_y']
         X = np.copy(Xtrain)
@@ -70,7 +70,7 @@ class StandardSelfTraining:
             print('Iteration #%d: Select cluster[%d/%d]: ' % (iteration, cluster_index, len(self.base_cluster)), type(self.base_cluster[cluster_index]))
             cluster = self.base_cluster[cluster_index] if self.base_cluster[cluster_index] is not None else self.base_classifier
             self._fit_iteration(X, y, cluster=cluster)
-            all_are_labeled = (y != "unlabeled").all()
+            all_are_labeled = (y != 99).all()
 
             train_labeled_loss, train_labeled_error, train_labeled_accuracy = \
                                 self.score(dataset['train_labeled_x'], dataset['train_labeled_y'])
@@ -96,7 +96,7 @@ class StandardSelfTraining:
 
         # Fit labeled data to base classifier
         clf = self.base_classifier
-        labeled = (y != 'unlabeled')
+        labeled = (y != 99)
         clf.fit( X[labeled], y[labeled] )
 
         # Select to-be-labeled candidate
@@ -104,16 +104,27 @@ class StandardSelfTraining:
         self.label_indices.append( label_index )
         self.label_values. append( label_value )
 
-        # Assert every candidate in to-be-labeled is with y = 'unlabeled'
+        # 
+        y_new_label = clf.predict(X[label_index])
+        print("label_value = ", label_value.shape, label_value)
+        print("y_new_label = ", y_new_label.shape, y_new_label)
+        print("type = ", clf.predict(X[label_index]).dtype)
+        # xxx
+        match_predicted = y_new_label == label_value
+        label_value[~match_predicted] = 99
+
+        print("acc = ", np.sum(match_predicted), match_predicted.shape)
+
+        # Assert every candidate in to-be-labeled is with y = 99
         for i, non_label in enumerate(label_index):
-            assert(non_label == False or y[i] == 'unlabeled')
+            assert(non_label == False or y[i] == 99)
 
         # Label new data
-        print("before labeled size = ", len([x for x in (y != 'unlabeled') if x == True]))
+        print("before labeled size = ", len([x for x in (y != 99) if x == True]))
         y[label_index] = label_value
 
         # Dump number of labeled
-        print("labeled size = ", len([x for x in (y != 'unlabeled') if x == True]))
+        print("labeled size = ", len([x for x in (y != 99) if x == True]))
 
     def predict(self, X):
         yhat = self.base_classifier.predict(X)
@@ -158,7 +169,7 @@ class GMM:
     def label_assign( self, X, y, gmm_predicted ):
         clstr_count = np.zeros((10,10))
         for real_label in range(10):
-            data_labeled_with_label_i = (y == str(real_label))
+            data_labeled_with_label_i = (y == real_label)
             index_in_gmm = gmm_predicted[data_labeled_with_label_i]
             for cluster_index in range(10):
                 total = np.sum(index_in_gmm == cluster_index)
@@ -197,6 +208,7 @@ class GMM:
                     to_be_labeled[~labeled & over_per_cluster_thresh & with_gmm_label_i] = lut[i]
                     label_index[~labeled & over_per_cluster_thresh & with_gmm_label_i] = True
                     label_value.extend([lut[i]]*num_of_new_label)
+        print("to_be_labeled = ",to_be_labeled)
         label_index = to_be_labeled >= 0
         assert( np.sum(label_index) == to_be_labeled[label_index].shape[0] )
         return label_index, to_be_labeled[label_index]
@@ -211,7 +223,7 @@ class DNN_cluster:
 
         # Make sure @labeled is correct
         for i, is_label in enumerate(labeled):
-            assert(is_label == True or y[i] == 'unlabeled')
+            assert(is_label == True or y[i] == 99)
 
         # Define a DNN classfier
         dnn = neural_network.MLPClassifier(hidden_layer_sizes=(256,256,256), max_iter=500)
@@ -255,7 +267,7 @@ class inherit_DNN_cluster(neural_network.MLPClassifier):
 
         # Make sure @labeled is correct
         for i, is_label in enumerate(labeled):
-            assert(is_label == True or y[i] == 'unlabeled')
+            assert(is_label == True or y[i] == 99)
 
         # Fit to data and get the prob for unlabeled data
         y_int = [int(yy) for yy in y[labeled]]
@@ -481,14 +493,19 @@ if __name__ == '__main__':
                     for item in single_result:
                         f.write(item+'\n')
                         for i, res in enumerate(single_result[item]):
-                            f.write("Iteration %2d: %.3e" % (i, res))
+                            f.write("Iteration %2d: %.3e\n" % (i, res))
 
                     # Dump new label accuracy
                     print("New label accuracy")
                     # print("groundtruth.shape = ", groundtruth.shape)
+                    f.write("New label corrected\n")
                     for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
                         print("Iteration %2d: New label acc" % i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
-                        f.write("Iteration %2d: New label acc %d/%d\n" % (i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape[0]))
+                        f.write("Iteration %2d: %d\n" % (i, np.sum(per_label_value==groundtruth[per_label_index])))
+                    f.write("New label total\n")
+                    for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
+                        f.write("Iteration %2d: %d\n" % (i, per_label_value.shape[0]))
+
 
                     # f.write()
             #     Train_labeled_loss[name].append(train_labeled_losses)
