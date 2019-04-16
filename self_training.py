@@ -28,13 +28,14 @@ def get_label_mask( y_train, label_ratio ):#dataset_all,result_subdir, X_train, 
     return mask_train
 
 class StandardSelfTraining:
-    def __init__(self, name, base_classifier, base_cluster, max_iterations=10):
+    def __init__(self, name, base_classifier, base_cluster, max_iterations=10, is_match=False):
         self.name = name
         self.base_classifier = base_classifier
         self.base_cluster    = base_cluster if base_cluster is not None else [base_classifier]
         self.max_iterations  = max_iterations
         self.label_indices   = []
         self.label_values    = []
+        self.is_match        = is_match
         self.min_threshold   = 300
 
     def __str__(self):
@@ -59,6 +60,12 @@ class StandardSelfTraining:
         train_unlabeled_loss, train_unlabeled_error, train_unlabeled_accuracy = \
                             self.score(dataset['train_unlabeled_x'], dataset['train_unlabeled_y'])
         test_loss, test_error, test_accuracy = self.score(dataset['test_x'], dataset['test_y'])
+        train_labeled_losses.       append(train_labeled_loss)
+        train_unlabeled_losses.     append(train_unlabeled_loss)
+        test_losses.                append(test_loss)
+        train_labeled_accuraciess.  append(train_labeled_accuracy) 
+        train_unlabeled_accuraciess.append(train_unlabeled_accuracy) 
+        test_accuraciess.           append(test_accuracy)
 
         print('Before iteration #1, train_unlabeled_accuracy = '+str(train_unlabeled_accuracy)
               +', test_accuracy = '+str(test_accuracy))
@@ -69,7 +76,7 @@ class StandardSelfTraining:
             cluster_index = iteration % len(self.base_cluster) #min(iteration, len(self.base_cluster)-1)
             print('Iteration #%d: Select cluster[%d/%d]: ' % (iteration, cluster_index, len(self.base_cluster)), type(self.base_cluster[cluster_index]))
             cluster = self.base_cluster[cluster_index] if self.base_cluster[cluster_index] is not None else self.base_classifier
-            self._fit_iteration(X, y, cluster=cluster)
+            self._fit_iteration(X, y, cluster=cluster, is_match=self.is_match)
             all_are_labeled = (y != 99).all()
 
             train_labeled_loss, train_labeled_error, train_labeled_accuracy = \
@@ -92,7 +99,7 @@ class StandardSelfTraining:
                train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess
         
 
-    def _fit_iteration(self, X, y, cluster):
+    def _fit_iteration(self, X, y, cluster, is_match=False):
 
         # Fit labeled data to base classifier
         clf = self.base_classifier
@@ -104,16 +111,16 @@ class StandardSelfTraining:
         self.label_indices.append( label_index )
         self.label_values. append( label_value )
 
-        # 
-        y_new_label = clf.predict(X[label_index])
-        print("label_value = ", label_value.shape, label_value)
-        print("y_new_label = ", y_new_label.shape, y_new_label)
-        print("type = ", clf.predict(X[label_index]).dtype)
-        # xxx
-        match_predicted = y_new_label == label_value
-        label_value[~match_predicted] = 99
+        # Return if no label selected by cluster
+        if np.sum(label_index) == 0:
+            return
 
-        print("acc = ", np.sum(match_predicted), match_predicted.shape)
+        # Mask out (->unlabeled) the new label different with prediction from classfier
+        y_new_label = clf.predict(X[label_index])
+        match_predicted = y_new_label == label_value
+        if is_match:
+            label_value[~match_predicted] = 99
+        # print("acc = ", np.sum(match_predicted), match_predicted.shape)
 
         # Assert every candidate in to-be-labeled is with y = 99
         for i, non_label in enumerate(label_index):
@@ -147,9 +154,9 @@ class StandardSelfTraining:
         return self.label_indices, self.label_values
 
 class GMM:
-    def __init__( self,  th_label_assign=0.7, th_norm_ranking=1.5 ):
+    def __init__( self,  th_label_assign=0.7, th_percentile=50 ):
         self.th_label_assign = th_label_assign
-        self.th_norm_ranking = th_norm_ranking
+        self.th_percentile = th_percentile
 
     def gmm_analysis( self, X, y, labeled ):
 
@@ -199,24 +206,24 @@ class GMM:
             if lut[i] is not None:
                 with_gmm_label_i = gmm_predicted==i
                 # print("Number in cluster %d" % i, y[with_gmm_label_i].shape, "ranged from %d to %d" % (min(clstr_score[with_gmm_label_i]), max(clstr_score[with_gmm_label_i])))
-                stdev = statistics.stdev(clstr_score[with_gmm_label_i])
-                mean  = statistics.mean(clstr_score[with_gmm_label_i])
-                over_per_cluster_thresh = (clstr_score-mean)/stdev >= self.th_norm_ranking
+#                stdev = statistics.stdev(clstr_score[with_gmm_label_i])
+#                mean  = statistics.mean(clstr_score[with_gmm_label_i])
+                value_percentile = np.percentile(clstr_score[with_gmm_label_i], self.th_percentile)
+                over_per_cluster_thresh = clstr_score >= value_percentile
 
                 num_of_new_label = sum(~labeled & over_per_cluster_thresh & with_gmm_label_i)
                 if  num_of_new_label > 0:
                     to_be_labeled[~labeled & over_per_cluster_thresh & with_gmm_label_i] = lut[i]
                     label_index[~labeled & over_per_cluster_thresh & with_gmm_label_i] = True
                     label_value.extend([lut[i]]*num_of_new_label)
-        print("to_be_labeled = ",to_be_labeled)
         label_index = to_be_labeled >= 0
         assert( np.sum(label_index) == to_be_labeled[label_index].shape[0] )
         return label_index, to_be_labeled[label_index]
 
 class DNN_cluster:
-    def __init__( self, th_label_assign, mhigh=False ):
+    def __init__( self, th_label_assign, th_percentile=None ):
         self.th_label_assign = th_label_assign
-        self.th_mhigh = mhigh
+        self.th_percentile = th_percentile
 
     def selected_labeled(self, X, y, labeled):
         import statistics
@@ -236,11 +243,11 @@ class DNN_cluster:
         prob_max = np.max(probabilities, axis=1)
         # stdev = statistics.stdev(prob_max[~labeled])
         # mean  = statistics.mean(prob_max[~labeled])
-        if self.th_mhigh == True:
-            mhigh = statistics.median_high(prob_max[~labeled])
+        if self.th_percentile is not None:
+            mhigh = np.percentile(prob_max[~labeled], self.th_percentile) 
+
         else: mhigh = 0
         threshold = max(self.th_label_assign, mhigh)
-        print("threshold = ", threshold)
         over_thresh = prob_max >= threshold
         print(over_thresh)
 
@@ -356,9 +363,18 @@ if __name__ == '__main__':
     parser.add_argument("--n_train", type=int,   default=6000)
     parser.add_argument("--n_test",  type=int,   default=10000)
     parser.add_argument("--model_cls", type=str, nargs='+', required=True)
-    parser.add_argument("--model_slt", type=str, nargs='+', required=True)
+    parser.add_argument("--model_slt", type=str, nargs='+', required=False)
     parser.add_argument("--ratios",    type=float, nargs='+', default=[10])
     parser.add_argument("--max_iterations", type=int, default=10)
+    parser.add_argument("--model_slt_gmm", action='store_true')
+    parser.add_argument("--model_slt_gmm_lbasn", type=int, nargs='+', default=[60])
+    parser.add_argument("--model_slt_gmm_pcntl", type=int, nargs='+', default=[75])
+    parser.add_argument("--model_slt_dnn", action='store_true')
+    parser.add_argument("--model_slt_dnn_lbasn", type=int, nargs='+', default=[90])
+    parser.add_argument("--model_slt_dnn_noniv", action='store_true')
+    parser.add_argument("--model_slt_dnn_mhigh", action='store_true')
+    parser.add_argument("--is_match", action='store_true')
+    parser.add_argument("--log_path", type=str, default=".")
     args = parser.parse_args()
 
     dataset_path    = args.dataset
@@ -390,54 +406,30 @@ if __name__ == '__main__':
         name_clfs.append( ('logistics',  linear_model.LogisticRegression(random_state=0, solver='sag', multi_class='multinomial', max_iter=500)))
 
     name_selectors = []
-    if 'GMM' in args.model_slt:
-        name_selectors.append( ('GMM',  [GMM()] ))
-    if 'GMM-60-0'  in args.model_slt:
-        name_selectors.append( ('GMM6000',  [GMM(th_label_assign=0.6, th_norm_ranking=0.0)] ))
-    if 'GMM-60-5'  in args.model_slt:
-        name_selectors.append( ('GMM6005',  [GMM(th_label_assign=0.6, th_norm_ranking=0.5)] ))
-    if 'GMM-60-10' in args.model_slt:
-        name_selectors.append( ('GMM6010',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0)] ))
-    if 'GMM-60-15' in args.model_slt:
-        name_selectors.append( ('GMM6015',  [GMM(th_label_assign=0.6, th_norm_ranking=1.5)] ))
-    if 'GMM-60-20' in args.model_slt:
-        name_selectors.append( ('GMM6020',  [GMM(th_label_assign=0.6, th_norm_ranking=2.0)] ))
-    if 'GMM-50-10' in args.model_slt:
-        name_selectors.append( ('GMM5010',  [GMM(th_label_assign=0.5, th_norm_ranking=1.0)] ))
-    if 'GMM-50-15' in args.model_slt:
-        name_selectors.append( ('GMM5015',  [GMM(th_label_assign=0.5, th_norm_ranking=1.5)] ))
-    if 'GMM-50-20' in args.model_slt:
-        name_selectors.append( ('GMM5020',  [GMM(th_label_assign=0.5, th_norm_ranking=2.0)] ))
-    if 'GMM-40-10' in args.model_slt:
-        name_selectors.append( ('GMM4010',  [GMM(th_label_assign=0.4, th_norm_ranking=1.0)] ))
-    if 'GMM-40-15' in args.model_slt:
-        name_selectors.append( ('GMM4015',  [GMM(th_label_assign=0.4, th_norm_ranking=1.5)] ))
-    if 'GMM-40-20' in args.model_slt:
-        name_selectors.append( ('GMM4020',  [GMM(th_label_assign=0.4, th_norm_ranking=2.0)] ))
-    if 'DNN-70' in args.model_slt:
-        name_selectors.append( ('DNN70',       [DNN_cluster(th_label_assign=0.70)            ]))
-        name_selectors.append( ('DNN70-mhigh', [DNN_cluster(th_label_assign=0.70, mhigh=True)]))
-    if 'DNN-80' in args.model_slt:
-        name_selectors.append( ('DNN80',       [DNN_cluster(th_label_assign=0.80)            ]))
-        name_selectors.append( ('DNN80-mhigh', [DNN_cluster(th_label_assign=0.80, mhigh=True)]))
-    if 'DNN-90' in args.model_slt:
-        name_selectors.append( ('DNN90',       [DNN_cluster(th_label_assign=0.90)            ]))
-        name_selectors.append( ('DNN90-mhigh', [DNN_cluster(th_label_assign=0.90, mhigh=True)]))
-    if 'DNN-95' in args.model_slt:
-        name_selectors.append( ('DNN95',       [DNN_cluster(th_label_assign=0.95)            ]))
-        name_selectors.append( ('DNN95-mhigh', [DNN_cluster(th_label_assign=0.95, mhigh=True)]))
-    if 'DNN-98' in args.model_slt:
-        name_selectors.append( ('DNN98',       [DNN_cluster(th_label_assign=0.98)            ]))
-        name_selectors.append( ('DNN98-mhigh', [DNN_cluster(th_label_assign=0.98, mhigh=True)]))
-    if 'GMM-6010-DNN90' in args.model_slt:
-        name_selectors.append( ('GMM-6010-DNN90-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.90, mhigh=True)]))
-    if 'GMM-6010-DNN95' in args.model_slt:
-        name_selectors.append( ('GMM-6010-DNN95-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.95, mhigh=True)]))
-    if 'GMM-6010-DNN98' in args.model_slt:
-        name_selectors.append( ('GMM-6010-DNN98-mhigh',  [GMM(th_label_assign=0.6, th_norm_ranking=1.0), DNN_cluster(th_label_assign=0.98, mhigh=True)]))
 
-    if 'iDNN' in args.model_slt:
-        name_selectors.append( ('iDNN', [None]))
+    if args.model_slt_gmm:
+        for label_assign in args.model_slt_gmm_lbasn:
+            for percentile in args.model_slt_gmm_pcntl:
+                model_name = "GMM%d%d" % (label_assign, percentile)
+                if args.is_match: model_name = model_name + '-match'
+                name_selectors.append( (model_name, [GMM(th_label_assign=label_assign/100, th_percentile=percentile)]))
+    else: print("No GMM model")
+
+    if args.model_slt_dnn:
+        for label_assign in args.model_slt_dnn_lbasn:
+            model_name = "%s" + "-DNN%d" % label_assign
+            if args.is_match: model_name = model_name + '-match'
+            if not args.model_slt_dnn_noniv:
+                specific_model_name = model_name % "naive"
+                name_selectors.append( (specific_model_name, [DNN_cluster(th_label_assign=label_assign/100)]))
+            if args.model_slt_dnn_mhigh:
+                specific_model_name = model_name % "mhigh"
+                name_selectors.append( (specific_model_name, [DNN_cluster(th_label_assign=label_assign/100, th_percentile=75)]))
+    else: print("No DNN model")
+
+    print("To-be-trained selectors: ")
+    for i, model in enumerate(name_selectors):
+        print("#%-2d: " % i, model)
 
     Train_labeled_loss,     Train_unlabeled_loss,     Test_loss     = {}, {}, {}
     Train_labeled_accuracy, Train_unlabeled_accuracy, Test_accuracy = {}, {}, {}
@@ -467,7 +459,7 @@ if __name__ == '__main__':
                 dataset['train_unlabeled_x'] = dataset_all['train_x'][:n_train_samples][~label_mask]
                 dataset['train_unlabeled_y'] = dataset_all['train_y'][:n_train_samples][~label_mask]
 
-                method = StandardSelfTraining(clf_name, base_classifier=clf, base_cluster=slts, max_iterations=max_iterations)
+                method = StandardSelfTraining(clf_name, base_classifier=clf, base_cluster=slts, max_iterations=max_iterations, is_match=args.is_match)
                 print("Method = ", method.__str__())
                 train_labeled_losses, train_unlabeled_losses, test_losses, \
                    train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess = method.fit(dataset)
@@ -480,31 +472,34 @@ if __name__ == '__main__':
                                  'Train_unlabeled_accuracy': train_unlabeled_accuraciess,
                                  'Test_accuracy': test_accuraciess
                                  }
-                with open(filename_res % (n_train_samples, label_ratio, clf_name, slt_name), "w") as f:
-                    for item in single_result:
-                        f.write(item+":"+str(single_result[item])+'\n')
 
                 label_index, label_value = method.get_label_info()
                 groundtruth = np.hstack((dataset['train_labeled_y'], dataset['train_unlabeled_y']))
                 
-                filename = "SSL-clf%s-slt%s-label%d.txt" % (clf_name, slt_name, label_ratio)
+                filename = args.log_path + '/' + "SSL-clf-%s-slt-%s-label%d.txt" % (clf_name, slt_name, label_ratio)
                 with open(filename, 'w') as f:
 
                     for item in single_result:
-                        f.write(item+'\n')
-                        for i, res in enumerate(single_result[item]):
-                            f.write("Iteration %2d: %.3e\n" % (i, res))
+                        f.write(item+str(single_result[item])+'\n')
+#                        for i, res in enumerate(single_result[item]):
+#                            f.write("Iteration %2d: %.3e\n" % (i, res))
 
                     # Dump new label accuracy
                     print("New label accuracy")
                     # print("groundtruth.shape = ", groundtruth.shape)
-                    f.write("New label corrected\n")
+                    new_labels_corrected = []
+                    new_labels_total = []
                     for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
-                        print("Iteration %2d: New label acc" % i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
-                        f.write("Iteration %2d: %d\n" % (i, np.sum(per_label_value==groundtruth[per_label_index])))
-                    f.write("New label total\n")
-                    for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
-                        f.write("Iteration %2d: %d\n" % (i, per_label_value.shape[0]))
+                        new_labels_corrected.append( np.sum(per_label_value==groundtruth[per_label_index]) )
+                        new_labels_total    .append( per_label_value.shape[0] )
+#                        print("Iteration %2d: New label acc" % i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
+#                        f.write("Iteration %2d: %d\n" % (i, np.sum(per_label_value==groundtruth[per_label_index])))
+                    print("New_label_corrected" + str(new_labels_corrected) + "\n")
+                    print("New_label_total"     + str(new_labels_total)     + "\n")
+                    f.write("New_label_corrected" + str(new_labels_corrected) + "\n")
+                    f.write("New_label_total"     + str(new_labels_total)     + "\n")
+#                    for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
+#                        f.write("Iteration %2d: %d\n" % (i, per_label_value.shape[0]))
 
 
                     # f.write()
