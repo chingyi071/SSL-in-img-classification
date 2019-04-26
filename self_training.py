@@ -10,12 +10,11 @@ from sklearn import neighbors, svm, linear_model, tree, ensemble, naive_bayes, n
 from sklearn import model_selection
 
 
-def get_label_mask( y_train, label_ratio ):#dataset_all,result_subdir, X_train, y_train, X_test, y_test, num_classes):
+def get_label_mask( y_train, n_label ):#dataset_all,result_subdir, X_train, y_train, X_ten_label=args.nlabel):
 
     # Assign labels to a subset of inputs.
-    num_labels  = int(len(y_train) * (label_ratio/100))
     num_classes = 10
-    max_count = num_labels // num_classes
+    max_count = n_label // num_classes
     print("Keeping %d labels per class." % max_count)
     mask_train = np.zeros(len(y_train), dtype=np.bool)
     count = [0] * num_classes
@@ -351,6 +350,26 @@ def data_prepare(dataset_path, n_train=60000, n_test=10000):
             'test_y': y_test_all}
 
 
+def merge_result( single_result ):
+    for item in single_result:
+        if 'New_label' not in item:
+            avg = np.average( single_result[item], axis=0 )
+            avg_result[item] = avg
+
+    new_labels_corrected = []
+    new_labels_total = []
+    correctness = np.zeros( single_result['New_label_value'].shape[:2] )
+    label_total = np.zeros( single_result['New_label_value'].shape[:2] )
+    for i, (one_expr_label_indices, one_expr_label_total) in enumerate(zip( single_result['New_label_correct'], single_result['New_label_value'])):                        
+        for j, (label_index, label_value) in enumerate(zip( one_expr_label_indices, one_expr_label_total )):
+            correctness[i][j] = np.sum( label_value==groundtruth[label_index])
+            label_total[i][j] = label_value.shape[0]
+
+    avg_result["New_label_correct"] = np.average(correctness, axis=0)
+    avg_result["New_label_total"]   = np.average(label_total, axis=0)
+    niter = avg_result["New_label_total"].shape[0]
+    return niter, avg_result
+
 
 # ================================================================================== #
 #                                       main                                         #
@@ -360,11 +379,11 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str,   required=True)
+    parser.add_argument("--n_label", type=int,   default=600)
     parser.add_argument("--n_train", type=int,   default=6000)
     parser.add_argument("--n_test",  type=int,   default=10000)
     parser.add_argument("--model_cls", type=str, nargs='+', required=True)
     parser.add_argument("--model_slt", type=str, nargs='+', required=False)
-    parser.add_argument("--ratios",    type=float, nargs='+', default=[10])
     parser.add_argument("--max_iterations", type=int, default=10)
     parser.add_argument("--model_slt_gmm", action='store_true')
     parser.add_argument("--model_slt_gmm_lbasn", type=int, nargs='+', default=[60])
@@ -373,13 +392,14 @@ if __name__ == '__main__':
     parser.add_argument("--model_slt_dnn_lbasn", type=int, nargs='+', default=[90])
     parser.add_argument("--model_slt_dnn_noniv", action='store_true')
     parser.add_argument("--model_slt_dnn_mhigh", action='store_true')
-    parser.add_argument("--is_match", action='store_true')
+    parser.add_argument("--is_match", help="Selected data should be matched with classifier prediction", action='store_true')
+    parser.add_argument("--niter_per_config", type=int, default=10)
     parser.add_argument("--log_path", type=str, default=".")
     args = parser.parse_args()
 
     dataset_path    = args.dataset
     n_train_samples = args.n_train
-    ratios          = args.ratios
+    n_label_samples = args.n_label
     max_iterations  = args.max_iterations
     # result_file = 'self_training_mnist_ntrain'+str(n_train_samples)+'_label'+
     filename_res = 'SSL_result_mnist_ntrain%d_label%d_cls%s_slt%s.txt'
@@ -427,9 +447,13 @@ if __name__ == '__main__':
                 name_selectors.append( (specific_model_name, [DNN_cluster(th_label_assign=label_assign/100, th_percentile=75)]))
     else: print("No DNN model")
 
+    print("Data distribution: label(%d), train(%d), test(%d)" % (n_train_samples, n_label_samples, args.n_test))
     print("To-be-trained selectors: ")
     for i, model in enumerate(name_selectors):
         print("#%-2d: " % i, model)
+
+    print("log path will be saved into " + args.log_path)
+    print("====================")
 
     Train_labeled_loss,     Train_unlabeled_loss,     Test_loss     = {}, {}, {}
     Train_labeled_accuracy, Train_unlabeled_accuracy, Test_accuracy = {}, {}, {}
@@ -451,9 +475,17 @@ if __name__ == '__main__':
             # Train_labeled_loss[name], Train_unlabeled_loss[name], Test_loss[name] = [], [], []
             # Train_labeled_accuracy[name], Train_unlabeled_accuracy[name], Test_accuracy[name] = [], [], []
             print("Selector = ", slt_name)
-            for label_ratio in ratios:
-                label_mask = get_label_mask( y_train=dataset_all['train_y'][:n_train_samples], label_ratio=label_ratio )
-                num_label_data = int( n_train_samples * label_ratio / 100 )
+            train_labeled_losses = []
+            train_unlabeled_losses = []
+            test_losses = []
+            train_labeled_accuraciess = []
+            train_unlabeled_accuraciess = []
+            test_accuraciess = []
+            label_indices = []
+            label_values = []
+            
+            for _ in range(args.niter_per_config):
+                label_mask = get_label_mask( y_train=dataset_all['train_y'][:n_train_samples], n_label=n_label_samples )
                 dataset['train_labeled_x']   = dataset_all['train_x'][:n_train_samples][label_mask]
                 dataset['train_labeled_y']   = dataset_all['train_y'][:n_train_samples][label_mask]
                 dataset['train_unlabeled_x'] = dataset_all['train_x'][:n_train_samples][~label_mask]
@@ -461,100 +493,42 @@ if __name__ == '__main__':
 
                 method = StandardSelfTraining(clf_name, base_classifier=clf, base_cluster=slts, max_iterations=max_iterations, is_match=args.is_match)
                 print("Method = ", method.__str__())
-                train_labeled_losses, train_unlabeled_losses, test_losses, \
-                   train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess = method.fit(dataset)
-
-
-                single_result = {'Train_labeled_loss': train_labeled_losses,
-                                 'Train_unlabeled_loss': train_unlabeled_losses,
-                                 'Test_loss': test_losses,
-                                 'Train_labeled_accuracy': train_labeled_accuraciess,
-                                 'Train_unlabeled_accuracy': train_unlabeled_accuraciess,
-                                 'Test_accuracy': test_accuraciess
-                                 }
-
+                train_labeled_loss, train_unlabeled_loss, test_loss, \
+                   train_labeled_acc, train_unlabeled_acc, test_acc = method.fit(dataset)
                 label_index, label_value = method.get_label_info()
-                groundtruth = np.hstack((dataset['train_labeled_y'], dataset['train_unlabeled_y']))
-                
-                filename = args.log_path + '/' + "SSL-clf-%s-slt-%s-label%d.txt" % (clf_name, slt_name, label_ratio)
-                with open(filename, 'w') as f:
 
-                    for item in single_result:
-                        f.write(item+str(single_result[item])+'\n')
-#                        for i, res in enumerate(single_result[item]):
-#                            f.write("Iteration %2d: %.3e\n" % (i, res))
-
-                    # Dump new label accuracy
-                    print("New label accuracy")
-                    # print("groundtruth.shape = ", groundtruth.shape)
-                    new_labels_corrected = []
-                    new_labels_total = []
-                    for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
-                        new_labels_corrected.append( np.sum(per_label_value==groundtruth[per_label_index]) )
-                        new_labels_total    .append( per_label_value.shape[0] )
-#                        print("Iteration %2d: New label acc" % i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
-#                        f.write("Iteration %2d: %d\n" % (i, np.sum(per_label_value==groundtruth[per_label_index])))
-                    print("New_label_corrected" + str(new_labels_corrected) + "\n")
-                    print("New_label_total"     + str(new_labels_total)     + "\n")
-                    f.write("New_label_corrected" + str(new_labels_corrected) + "\n")
-                    f.write("New_label_total"     + str(new_labels_total)     + "\n")
-#                    for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
-#                        f.write("Iteration %2d: %d\n" % (i, per_label_value.shape[0]))
+                train_labeled_losses.append( train_labeled_loss )
+                train_unlabeled_losses.append( train_unlabeled_loss )
+                test_losses.append( test_loss )
+                train_labeled_accuraciess.append( train_labeled_acc )
+                train_unlabeled_accuraciess.append( train_unlabeled_acc )
+                test_accuraciess.append( test_acc )
+                label_indices.append(label_index)
+                label_values.append(label_value)
 
 
-                    # f.write()
-            #     Train_labeled_loss[name].append(train_labeled_losses)
-            #     Train_unlabeled_loss[name].append(train_unlabeled_losses)
-            #     Test_loss[name].append(test_losses)
-            #     Train_labeled_accuracy[name].append(train_labeled_accuraciess)
-            #     Train_unlabeled_accuracy[name].append(train_unlabeled_accuraciess)
-            #     Test_accuracy[name].append(test_accuraciess)
+            single_result = {'Train_labeled_loss':       np.array(train_labeled_losses),
+                             'Train_unlabeled_loss':     np.array(train_unlabeled_losses),
+                             'Test_loss':                np.array(test_losses),
+                             'Train_labeled_accuracy':   np.array(train_labeled_accuraciess),
+                             'Train_unlabeled_accuracy': np.array(train_unlabeled_accuraciess),
+                             'Test_accuracy':            np.array(test_accuraciess),
+                             'New_label_correct':      np.array(label_indices),
+                             'New_label_value':          np.array(label_values),
+                             }
 
-            # result_to_file = {'Train_labeled_loss': Train_labeled_loss,
-            #                   'Train_unlabeled_loss': Train_unlabeled_loss,
-            #                   'Test_loss': Test_loss,
-            #                   'Train_labeled_accuracy': Train_labeled_accuracy,
-            #                   'Train_unlabeled_accuracy': Train_unlabeled_accuracy,
-            #                   'Test_accuracy': Test_accuracy}
-            # with open(result_file+'.txt', "w") as file: file.write(str(result_to_file))
-            # with open(result_file+'.pickle', "wb") as file: dump(result_to_file, file)
-
-
-        # for label_ratio in ratios:
-        #     label_mask = get_label_mask( y_train=dataset_all['train_y'][:n_train_samples], label_ratio=label_ratio )
-        #     num_label_data = int( n_train_samples * label_ratio / 100 )
-        #     dataset['train_labeled_x']   = dataset_all['train_x'][:n_train_samples][label_mask]
-        #     dataset['train_labeled_y']   = dataset_all['train_y'][:n_train_samples][label_mask]
-        #     dataset['train_unlabeled_x'] = dataset_all['train_x'][:n_train_samples][~label_mask]
-        #     dataset['train_unlabeled_y'] = dataset_all['train_y'][:n_train_samples][~label_mask]
-
-        #     method = StandardSelfTraining(clf_name, base_classifier=clf, base_cluster=slts, max_iterations=max_iterations)
-        #     print("Method = ", method.__str__())
-        #     train_labeled_losses, train_unlabeled_losses, test_losses, \
-        #        train_labeled_accuraciess, train_unlabeled_accuraciess, test_accuraciess = method.fit(dataset)
-
-
-        #     single_result = {'Train_labeled_loss': train_labeled_losses,
-        #                      'Train_unlabeled_loss': train_unlabeled_losses,
-        #                      'Test_loss': test_losses,
-        #                      'Train_labeled_accuracy': train_labeled_accuraciess,
-        #                      'Train_unlabeled_accuracy': train_unlabeled_accuraciess,
-        #                      'Test_accuracy': test_accuraciess
-        #                      }
-        #     with open(filename_res % (n_train_samples, label_ratio, clf_name, slt_name), "w") as f:
-        #         for item in single_result:
-        #             f.write(item+":"+str(single_result[item])+'\n')
-
-        #     label_index, label_value = method.get_label_info()
-        #     groundtruth = np.hstack((dataset['train_labeled_y'], dataset['train_unlabeled_y']))
+            groundtruth = np.hstack((dataset['train_labeled_y'], dataset['train_unlabeled_y']))
             
-        #     filename = "SSL-clf%s-slt%s-label%d.txt" % (clf_name, slt_name, label_ratio)
-        #     with open(filename, 'w') as f:
+            filename = args.log_path + '/' + "SSL-clf-%s-slt-%s-label%d.txt" % (clf_name, slt_name, n_label_samples)
+            avg_result = {}
+            with open(filename, 'w') as f:
 
-        #         # Dump new label accuracy
-        #         print("New label accuracy")
-        #         # print("groundtruth.shape = ", groundtruth.shape)
-        #         for i, (per_label_index, per_label_value) in enumerate(zip(label_index, label_value)):
-        #             print("Iteration %2d: New label acc" % i, np.sum(per_label_value==groundtruth[per_label_index]), per_label_value.shape)
+                niter, avg_result = merge_result(single_result)
+                for item in avg_result:
+                    f.write(item + ' ')
+                f.write('\n')
 
-        #         f.write(str(single_result)+'\n')
+                for i in range(niter):
+                    for item in avg_result:
+                        f.write(str(avg_result[item][i])+' ')
+                    f.write('\n')
